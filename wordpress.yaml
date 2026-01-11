@@ -12,10 +12,10 @@ spec:
       labels:
         app: wordpress
     spec:
-      restartPolicy: Always
       containers:
       - name: wordpress
-        image: wordpress:php8.2-apache
+        image: wordpress:6.5-apache
+        imagePullPolicy: IfNotPresent
         env:
         - name: WORDPRESS_DB_HOST
           value: mysql:3306
@@ -35,4 +35,4 @@ spec:
               name: mysql-secret
               key: MYSQL_PASSWORD
         ports:
-          - containerPort: 80
+        - containerPort: 80
