@@ -1,0 +1,88 @@
+#!/bin/bash
+set -e
+
+echo "[1] Очистка старых namespace и bridge"
+ip netns del h2 2>/dev/null || true
+ip netns del h3 2>/dev/null || true
+ip netns del h4 2>/dev/null || true
+ip link del br0 2>/dev/null || true
+
+echo "[2] Создание namespaces"
+ip netns add h2
+ip netns add h3
+ip netns add h4
+
+echo "[3] Создание bridge br0"
+ip link add name br0 type bridge
+ip link set br0 up
+
+echo "[4] Создание veth пар"
+ip link add veth-h2 type veth peer name veth-h2-br
+ip link add veth-h3 type veth peer name veth-h3-br
+ip link add veth-h4 type veth peer name veth-h4-br
+
+ip link set veth-h2 netns h2
+ip link set veth-h3 netns h3
+ip link set veth-h4 netns h4
+
+ip link set veth-h2-br master br0
+ip link set veth-h3-br master br0
+ip link set veth-h4-br master br0
+
+ip link set veth-h2-br up
+ip link set veth-h3-br up
+ip link set veth-h4-br up
+
+echo "[5] VLAN на bridge"
+ip link add link br0 name br0.10 type vlan id 10
+ip link add link br0 name br0.20 type vlan id 20
+
+ip addr add 10.0.0.1/24 dev br0.10
+ip addr add 20.0.0.1/24 dev br0.20
+
+ip link set br0.10 up
+ip link set br0.20 up
+
+echo "[6] Настройка VLAN внутри namespaces"
+
+# h2
+ip netns exec h2 ip link set lo up
+ip netns exec h2 ip link set veth-h2 up
+ip netns exec h2 ip link add link veth-h2 name veth-h2.10 type vlan id 10
+ip netns exec h2 ip link add link veth-h2 name veth-h2.20 type vlan id 20
+ip netns exec h2 ip addr add 10.0.0.2/24 dev veth-h2.10
+ip netns exec h2 ip addr add 20.0.0.2/24 dev veth-h2.20
+ip netns exec h2 ip link set veth-h2.10 up
+ip netns exec h2 ip link set veth-h2.20 up
+
+# h3
+ip netns exec h3 ip link set lo up
+ip netns exec h3 ip link set veth-h3 up
+ip netns exec h3 ip link add link veth-h3 name veth-h3.10 type vlan id 10
+ip netns exec h3 ip addr add 10.0.0.3/24 dev veth-h3.10
+ip netns exec h3 ip link set veth-h3.10 up
+
+# h4
+ip netns exec h4 ip link set lo up
+ip netns exec h4 ip link set veth-h4 up
+ip netns exec h4 ip link add link veth-h4 name veth-h4.20 type vlan id 20
+ip netns exec h4 ip addr add 20.0.0.4/24 dev veth-h4.20
+ip netns exec h4 ip link set veth-h4.20 up
+
+echo "[7] Включаем маршрутизацию"
+sysctl -w net.ipv4.ip_forward=1
+
+echo "[8] Настройка маршрутов"
+ip netns exec h2 ip route add default via 10.0.0.1
+ip netns exec h3 ip route add default via 10.0.0.1
+ip netns exec h4 ip route add default via 20.0.0.1
+
+echo "[9] NAT"
+iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -j MASQUERADE
+iptables -t nat -A POSTROUTING -s 20.0.0.0/24 -j MASQUERADE
+
+echo "[10] Фильтрация (разрешаем forward)"
+iptables -A FORWARD -i br0 -j ACCEPT
+iptables -A FORWARD -o br0 -j ACCEPT
+
+echo "ГОТОВО ✅"
