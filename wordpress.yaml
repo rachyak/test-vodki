@@ -15,7 +15,7 @@ spec:
       containers:
       - name: wordpress
         image: wordpress:6.5-apache
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Never
         env:
         - name: WORDPRESS_DB_HOST
           value: mysql:3306
